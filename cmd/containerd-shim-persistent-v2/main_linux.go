@@ -52,4 +52,3 @@ func (m *persistentManager) Stop(ctx context.Context, id string) (shim.StopStatu
 	}
 	return status, err
 }
-

@@ -14,7 +14,7 @@ func TestMutatePodRejectsInvalidStatePVC(t *testing.T) {
 			AnnotationEnabled: "true", AnnotationRootfsID: "workspace-0", AnnotationContainerName: "app",
 		}},
 		"spec": map[string]any{
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"volumes":    []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
 			"containers": []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest}},
 		},
 	}
@@ -59,7 +59,7 @@ func TestMutatePodRejectsModifiedStateVolumeMount(t *testing.T) {
 			AnnotationEnabled: "true", AnnotationRootfsID: "workspace-0", AnnotationContainerName: "app",
 		}},
 		"spec": map[string]any{
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"volumes":    []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
 			"containers": []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest, "volumeMounts": []map[string]any{{"name": "rootfs-state", "mountPath": DefaultVolumeDestination, "subPath": "unsafe"}}}},
 		},
 	}
@@ -77,8 +77,8 @@ func TestMutatePodRejectsEphemeralContainerStateMount(t *testing.T) {
 			AnnotationEnabled: "true", AnnotationRootfsID: "workspace-0", AnnotationContainerName: "app",
 		}},
 		"spec": map[string]any{
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
-			"containers": []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest}},
+			"volumes":             []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"containers":          []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest}},
 			"ephemeralContainers": []map[string]any{{"name": "debug", "image": "busybox", "volumeMounts": []map[string]string{{"name": "rootfs-state", "mountPath": "/state"}}}},
 		},
 	}
@@ -97,7 +97,7 @@ func TestValidatePodRequiresFinalRuntimeAndMount(t *testing.T) {
 			AnnotationEnabled: "true", AnnotationRootfsID: "workspace-0", AnnotationContainerName: "app",
 		}},
 		"spec": map[string]any{
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"volumes":    []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
 			"containers": []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest}},
 		},
 	}
@@ -116,7 +116,7 @@ func TestMutatePodInjectsRuntimeAndMount(t *testing.T) {
 			AnnotationEnabled: "true", AnnotationRootfsID: "workspace-0", AnnotationContainerName: "app",
 		}},
 		"spec": map[string]any{
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"volumes":    []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
 			"containers": []map[string]any{{"name": "app", "image": "registry.example/app@sha256:" + digest}},
 		},
 	}
@@ -180,7 +180,7 @@ func validPersistentPod(t *testing.T) map[string]any {
 		}},
 		"spec": map[string]any{
 			"runtimeClassName": DefaultRuntimeClass,
-			"volumes": []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
+			"volumes":          []map[string]any{{"name": "rootfs-state", "persistentVolumeClaim": map[string]string{"claimName": "rootfs-state"}}},
 			"containers": []map[string]any{{
 				"name": "app", "image": "registry.example/app@sha256:" + digest,
 				"volumeMounts": []map[string]string{{"name": "rootfs-state", "mountPath": DefaultVolumeDestination}},

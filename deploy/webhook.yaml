@@ -122,6 +122,27 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: persistent-rootfs
 webhooks:
+  - name: pvcs.validate.persistent-rootfs.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    objectSelector:
+      matchLabels:
+        persistent-rootfs.io/state-volume: "true"
+    clientConfig:
+      service:
+        namespace: persistent-rootfs-system
+        name: persistent-rootfs-webhook
+        path: /validate-pvc
+        port: 443
+      caBundle: REPLACE_WITH_BASE64_CA
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims"]
+        scope: Namespaced
   - name: pods.validate.persistent-rootfs.io
     admissionReviewVersions: ["v1"]
     sideEffects: None

@@ -3,8 +3,9 @@
 ## Prerequisites
 
 - Kubernetes with containerd 2.1.x and runc on Linux nodes.
-- Kubernetes support for `ReadWriteOncePod` and
-  `ValidatingAdmissionPolicy`.
+- Kubernetes 1.29 with admission webhooks and webhook match conditions enabled,
+  and a CSI driver supporting `ReadWriteOncePod`. The installer does not require
+  `ValidatingAdmissionPolicy` or its beta API.
 - A CSI StorageClass that provisions an OverlayFS-compatible filesystem.
 - Go 1.23 or newer for builds.
 - `openssl` and `kubectl` for the provided control-plane installer.
@@ -29,7 +30,7 @@ Copy `build/containerd-shim-persistent-v2` and the `deploy` directory to the
 node, then run:
 
 ```bash
-sudo deploy/install-node.sh build/containerd-shim-persistent-v2
+sudo sh deploy/install-node.sh build/containerd-shim-persistent-v2
 ```
 
 If kubelet does not use `/var/lib/kubelet/pods`, edit
@@ -54,13 +55,21 @@ kubectl label node NODE_NAME persistent-rootfs.io/enabled=true
 
 ## 3. Install admission and policy components
 
+Build and push a fresh webhook image tag when upgrading from the policy-based
+installer: older images do not serve `/validate-pvc`. The installer validates
+state PVC creation and updates through this webhook. Do not apply the optional
+`deploy/pvc-policy.yaml` on Kubernetes 1.29.
+
 ```bash
-deploy/install-control-plane.sh \
+sh deploy/install-control-plane.sh \
   registry.example/persistent-rootfs-webhook:v0.1.0
 ```
 
-The script creates a self-signed webhook certificate valid for 36500 days
-(about 100 years). Set `CERT_VALID_DAYS` to override the validity period.
+On first install the script creates a self-signed webhook certificate valid for
+36500 days (about 100 years). Set `CERT_VALID_DAYS` before first install to
+override the validity period. Re-running the installer reuses the existing TLS
+Secret; it does not renew certificates. It checks the manifests with server-side
+dry-run before installing them (the namespace must exist for namespaced checks).
 
 ## 4. Configure a workload
 

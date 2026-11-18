@@ -63,7 +63,7 @@ the CSI driver remain responsible for provisioning, attach/detach,
 NodeStage/NodePublish, expansion, VolumeSnapshot, and restore.
 
 State PVCs are labeled `persistent-rootfs.io/state-volume=true`. The supplied
-ValidatingAdmissionPolicy requires exactly `ReadWriteOncePod`, which provides
+PVC validating webhook requires exactly `ReadWriteOncePod`, which provides
 cluster-level single-Pod fencing. The shim lease adds same-node/same-boot
 protection and stale-owner detection.
 

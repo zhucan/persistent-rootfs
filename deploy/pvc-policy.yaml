@@ -18,7 +18,8 @@ spec:
       message: persistent rootfs state PVC label cannot be removed
     - expression: size(object.spec.accessModes) == 1 && object.spec.accessModes[0] == 'ReadWriteOncePod'
       message: persistent rootfs state PVCs must use ReadWriteOncePod
-    - expression: !has(object.spec.volumeMode) || object.spec.volumeMode == 'Filesystem'
+    - expression: >-
+        !has(object.spec.volumeMode) || object.spec.volumeMode == 'Filesystem'
       message: persistent rootfs state PVCs must use Filesystem volume mode
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -27,10 +27,10 @@ func TestPrepareRestoresSpecAndLeaseWhenLowerMountFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := Config{
-		StateDir: filepath.Join(root, "runtime-state"),
-		VolumeDestination: DefaultVolumeDestination,
+		StateDir:              filepath.Join(root, "runtime-state"),
+		VolumeDestination:     DefaultVolumeDestination,
 		AllowedVolumePrefixes: []string{root},
-		RequireBaseID: true,
+		RequireBaseID:         true,
 	}
 	lifecycle, err := NewShimLifecycle(config)
 	if err != nil {
@@ -79,14 +79,14 @@ func TestCleanupRetainsLeaseAndStateWhenUnmountFails(t *testing.T) {
 	lifecycle := &ShimLifecycle{config: Config{AllowedVolumePrefixes: []string{root}}}
 	session := &ShimSession{
 		ContainerID: "container-1",
-		Bundle: bundle,
-		Lower: filepath.Join(bundle, ".persistent-rootfs-lower"),
-		Merged: filepath.Join(bundle, "rootfs"),
-		StateRoot: stateRoot,
-		StatePath: statePath,
-		RootfsID: "app",
-		Lease: lease,
-		lowerMount: true,
+		Bundle:      bundle,
+		Lower:       filepath.Join(bundle, ".persistent-rootfs-lower"),
+		Merged:      filepath.Join(bundle, "rootfs"),
+		StateRoot:   stateRoot,
+		StatePath:   statePath,
+		RootfsID:    "app",
+		Lease:       lease,
+		lowerMount:  true,
 	}
 	if err := lifecycle.cleanup(session, func(string) error { return errors.New("unmount failed") }); err == nil {
 		t.Fatal("cleanup succeeded despite lower unmount failure")
@@ -118,11 +118,11 @@ func TestCleanupRejectsStateRootWithWrongRootfsID(t *testing.T) {
 	lifecycle := &ShimLifecycle{config: Config{AllowedVolumePrefixes: []string{root}}}
 	err := lifecycle.cleanup(&ShimSession{
 		ContainerID: "container-1",
-		Bundle: bundle,
-		Lower: filepath.Join(bundle, ".persistent-rootfs-lower"),
-		Merged: filepath.Join(bundle, "rootfs"),
-		StateRoot: stateRoot,
-		RootfsID: "app",
+		Bundle:      bundle,
+		Lower:       filepath.Join(bundle, ".persistent-rootfs-lower"),
+		Merged:      filepath.Join(bundle, "rootfs"),
+		StateRoot:   stateRoot,
+		RootfsID:    "app",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not match rootfs ID") {
 		t.Fatalf("unexpected error: %v", err)

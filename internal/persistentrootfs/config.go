@@ -19,7 +19,7 @@ const (
 	AnnotationBaseID         = "persistent-rootfs.io/base-id"
 	AnnotationContainerName  = "persistent-rootfs.io/container-name"
 	AnnotationVolumeName     = "persistent-rootfs.io/volume-name"
-	LabelStateVolume        = "persistent-rootfs.io/state-volume"
+	LabelStateVolume         = "persistent-rootfs.io/state-volume"
 	CRIContainerType         = "io.kubernetes.cri.container-type"
 	CRIContainerName         = "io.kubernetes.cri.container-name"
 	CRIImageName             = "io.kubernetes.cri.image-name"
@@ -74,7 +74,7 @@ func LoadConfig(path string) (Config, error) {
 
 func (c Config) Validate() error {
 	for name, value := range map[string]string{
-		"stateDir": c.StateDir,
+		"stateDir":          c.StateDir,
 		"volumeDestination": c.VolumeDestination,
 	} {
 		if value == "" {

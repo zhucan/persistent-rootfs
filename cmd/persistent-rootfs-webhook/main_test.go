@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,13 +16,44 @@ import (
 	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
 )
 
+func TestPVCAdmission(t *testing.T) {
+	const valid = `{"metadata":{"labels":{"persistent-rootfs.io/state-volume":"true"}},"spec":{"accessModes":["ReadWriteOncePod"]}}`
+	const ordinary = `{"spec":{"accessModes":["ReadWriteOnce"]}}`
+	for _, test := range []struct {
+		name, operation, object, old string
+		allowed                      bool
+	}{
+		{"default filesystem", "CREATE", valid, "", true},
+		{"explicit filesystem", "CREATE", strings.Replace(valid, `"accessModes"`, `"volumeMode":"Filesystem","accessModes"`, 1), "", true},
+		{"block", "CREATE", strings.Replace(valid, `"accessModes"`, `"volumeMode":"Block","accessModes"`, 1), "", false},
+		{"wrong mode", "CREATE", strings.Replace(valid, "ReadWriteOncePod", "ReadWriteOnce", 1), "", false},
+		{"extra mode", "CREATE", strings.Replace(valid, `"ReadWriteOncePod"`, `"ReadWriteOncePod","ReadWriteOnce"`, 1), "", false},
+		{"label removed", "UPDATE", ordinary, valid, false},
+		{"label disabled", "UPDATE", strings.Replace(valid, "true", "false", 1), valid, false},
+		{"label added", "UPDATE", valid, ordinary, true},
+		{"label added to invalid claim", "UPDATE", strings.Replace(valid, "ReadWriteOncePod", "ReadWriteOnce", 1), ordinary, false},
+		{"unchanged state claim", "UPDATE", valid, valid, true},
+		{"ordinary claim", "UPDATE", ordinary, ordinary, true},
+		{"missing old claim", "UPDATE", valid, "", false},
+		{"missing new claim", "CREATE", "null", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := &persistentrootfs.AdmissionRequest{UID: "review-uid", Resource: persistentrootfs.GroupResource{Version: "v1", Resource: "persistentvolumeclaims"}, Operation: test.operation, Object: json.RawMessage(test.object), OldObject: json.RawMessage(test.old)}
+			response := admitPVC(&persistentrootfs.AdmissionReview{Request: request})
+			if response.UID != request.UID || response.Allowed != test.allowed || (!response.Allowed && response.Status == nil) {
+				t.Fatalf("unexpected admission result: %+v", response)
+			}
+		})
+	}
+}
+
 func TestPVCValidatorUsesInformerCache(t *testing.T) {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
-			Name: "state",
-			Labels: map[string]string{persistentrootfs.LabelStateVolume: "true"},
+			Name:      "state",
+			Labels:    map[string]string{persistentrootfs.LabelStateVolume: "true"},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOncePod},
@@ -40,7 +72,7 @@ func TestPVCValidatorRejectsUnsafeCachedPVC(t *testing.T) {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "state"},
-		Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}},
+		Spec:       corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}},
 	}
 	if err := indexer.Add(pvc); err != nil {
 		t.Fatal(err)

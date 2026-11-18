@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
   echo "usage: $0 <webhook-image>" >&2
   exit 2
 fi
@@ -13,6 +13,9 @@ for command in kubectl openssl sed base64; do
 done
 
 IMAGE=$1
+case "$IMAGE" in
+  *[!a-zA-Z0-9./:@_-]*) echo "invalid character in webhook image reference" >&2; exit 2 ;;
+esac
 CERT_VALID_DAYS=${CERT_VALID_DAYS:-36500}
 case "$CERT_VALID_DAYS" in
   *[!0-9]*|'')
@@ -29,21 +32,40 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
 SERVICE_DNS=persistent-rootfs-webhook.persistent-rootfs-system.svc
-openssl req -x509 -newkey rsa:3072 -nodes -days "$CERT_VALID_DAYS" \
-  -subj "/CN=$SERVICE_DNS" \
-  -addext "subjectAltName=DNS:$SERVICE_DNS,DNS:$SERVICE_DNS.cluster.local" \
-  -keyout "$TMP/tls.key" -out "$TMP/tls.crt" >/dev/null 2>&1
-
-kubectl apply -f "$SCRIPT_DIR/runtimeclass.yaml"
-kubectl apply -f "$SCRIPT_DIR/pvc-policy.yaml"
-kubectl create namespace persistent-rootfs-system --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n persistent-rootfs-system create secret tls persistent-rootfs-webhook-tls \
-  --cert="$TMP/tls.crt" --key="$TMP/tls.key" --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply --dry-run=server -f "$SCRIPT_DIR/runtimeclass.yaml"
+kubectl create namespace persistent-rootfs-system --dry-run=client -o yaml >"$TMP/namespace.yaml"
+kubectl apply -f "$TMP/namespace.yaml"
+SECRET=persistent-rootfs-webhook-tls
+NAMESPACE=persistent-rootfs-system
+secret_name=$(kubectl -n "$NAMESPACE" get secret "$SECRET" --ignore-not-found -o name)
+if [ -z "$secret_name" ]; then
+cat >"$TMP/openssl.cnf" <<EOF
+[req]
+prompt = no
+distinguished_name = subject
+[subject]
+CN = $SERVICE_DNS
+[webhook]
+subjectAltName = DNS:$SERVICE_DNS,DNS:$SERVICE_DNS.cluster.local
+EOF
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days "$CERT_VALID_DAYS" \
+  -config "$TMP/openssl.cnf" -extensions webhook \
+  -keyout "$TMP/tls.key" -out "$TMP/tls.crt"
 
 CA_BUNDLE=$(base64 <"$TMP/tls.crt" | tr -d '\r\n')
+else
+  CA_BUNDLE=$(kubectl -n "$NAMESPACE" get secret "$SECRET" -o 'jsonpath={.data.tls\.crt}')
+  [ -n "$CA_BUNDLE" ] || { echo "$SECRET has no tls.crt" >&2; exit 1; }
+fi
 sed \
   -e "s|registry.example/persistent-rootfs-webhook:REPLACE_ME|$IMAGE|g" \
   -e "s|REPLACE_WITH_BASE64_CA|$CA_BUNDLE|g" \
-  "$SCRIPT_DIR/webhook.yaml" | kubectl apply -f -
+  "$SCRIPT_DIR/webhook.yaml" >"$TMP/webhook.yaml"
+kubectl apply --dry-run=server -f "$TMP/webhook.yaml"
+if [ -z "$secret_name" ]; then
+  kubectl -n "$NAMESPACE" create secret tls "$SECRET" --cert="$TMP/tls.crt" --key="$TMP/tls.key"
+fi
+kubectl apply -f "$SCRIPT_DIR/runtimeclass.yaml"
+kubectl apply -f "$TMP/webhook.yaml"
 
-kubectl -n persistent-rootfs-system rollout status deployment/persistent-rootfs-webhook
+kubectl -n "$NAMESPACE" rollout status deployment/persistent-rootfs-webhook --timeout=5m

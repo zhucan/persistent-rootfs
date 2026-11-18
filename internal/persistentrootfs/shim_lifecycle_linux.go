@@ -15,14 +15,14 @@ const shimStateVersion = 3
 
 // ShimSession owns the mounts prepared for one containerd CreateTask call.
 type ShimSession struct {
-	ContainerID string
-	Bundle      string
-	Lower       string
-	Merged      string
-	StateRoot   string
-	StatePath   string
-	RootfsID    string
-	Lease       ShimLease
+	ContainerID  string
+	Bundle       string
+	Lower        string
+	Merged       string
+	StateRoot    string
+	StatePath    string
+	RootfsID     string
+	Lease        ShimLease
 	original     []byte
 	specMode     os.FileMode
 	lowerMount   bool

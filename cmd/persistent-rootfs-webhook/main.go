@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,9 @@ func main() {
 	}
 
 	handler := http.NewServeMux()
+	handler.HandleFunc("/validate-pvc", func(writer http.ResponseWriter, request *http.Request) {
+		handleAdmission(writer, request, admitPVC)
+	})
 	handler.HandleFunc("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		if !kube.ready() {
 			http.Error(writer, "PVC cache is not synchronized", http.StatusServiceUnavailable)
@@ -97,14 +101,19 @@ func handleAdmission(writer http.ResponseWriter, request *http.Request, admit fu
 		return
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, maxAdmissionBodyBytes)
-	decoder := json.NewDecoder(request.Body)
-	var review persistentrootfs.AdmissionReview
-	if err := decoder.Decode(&review); err != nil {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
 		var maxBytesError *http.MaxBytesError
 		if errors.As(err, &maxBytesError) {
 			http.Error(writer, "admission review is too large", http.StatusRequestEntityTooLarge)
 			return
 		}
+		http.Error(writer, fmt.Sprintf("read admission review: %v", err), http.StatusBadRequest)
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	var review persistentrootfs.AdmissionReview
+	if err := decoder.Decode(&review); err != nil {
 		http.Error(writer, fmt.Sprintf("decode admission review: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -165,6 +174,10 @@ func (k *kubePVCClient) validate(ctx context.Context, namespace, claimName strin
 	if err != nil {
 		return err
 	}
+	return validateStatePVC(pvc)
+}
+
+func validateStatePVC(pvc *corev1.PersistentVolumeClaim) error {
 	if pvc.Labels[persistentrootfs.LabelStateVolume] != "true" {
 		return fmt.Errorf("PVC must have label persistent-rootfs.io/state-volume=true")
 	}
@@ -175,4 +188,41 @@ func (k *kubePVCClient) validate(ctx context.Context, namespace, claimName strin
 		return fmt.Errorf("PVC must use Filesystem volume mode")
 	}
 	return nil
+}
+
+func admitPVC(review *persistentrootfs.AdmissionReview) persistentrootfs.AdmissionResponse {
+	response := persistentrootfs.AdmissionResponse{}
+	deny := func(message string) persistentrootfs.AdmissionResponse {
+		response.Status = &persistentrootfs.Status{Message: message, Code: http.StatusForbidden}
+		return response
+	}
+	request := review.Request
+	if request == nil {
+		return deny("missing PVC admission request")
+	}
+	response.UID = request.UID
+	if request.Resource != (persistentrootfs.GroupResource{Version: "v1", Resource: "persistentvolumeclaims"}) || request.SubResource != "" || (request.Operation != "CREATE" && request.Operation != "UPDATE") {
+		return deny("unexpected resource or operation for PVC validation")
+	}
+	var pvc *corev1.PersistentVolumeClaim
+	if err := json.Unmarshal(request.Object, &pvc); err != nil || pvc == nil {
+		return deny("invalid PVC in admission request")
+	}
+	selected := pvc.Labels[persistentrootfs.LabelStateVolume] == "true"
+	if request.Operation == "UPDATE" {
+		var oldPVC *corev1.PersistentVolumeClaim
+		if err := json.Unmarshal(request.OldObject, &oldPVC); err != nil || oldPVC == nil {
+			return deny("invalid old PVC in update request")
+		}
+		if oldPVC.Labels[persistentrootfs.LabelStateVolume] == "true" && !selected {
+			return deny("persistent rootfs state PVC label cannot be removed")
+		}
+	}
+	if selected {
+		if err := validateStatePVC(pvc); err != nil {
+			return deny(err.Error())
+		}
+	}
+	response.Allowed = true
+	return response
 }

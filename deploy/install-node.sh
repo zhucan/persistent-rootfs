@@ -14,12 +14,14 @@ if [ ! -x "$BINARY" ]; then
   exit 1
 fi
 if [ ! -x /usr/bin/runc ]; then
-  echo "real runc was not found at /usr/bin/runc; update config.json first" >&2
+  echo "this installer requires an executable /usr/bin/runc" >&2
   exit 1
 fi
 
 install -D -m 0755 "$BINARY" /usr/local/bin/containerd-shim-persistent-v2
-install -D -m 0600 "$SCRIPT_DIR/config.json" /etc/persistent-rootfs/config.json
+if [ ! -e /etc/persistent-rootfs/config.json ]; then
+  install -D -m 0600 "$SCRIPT_DIR/config.json" /etc/persistent-rootfs/config.json
+fi
 install -d -m 0700 /run/persistent-rootfs
 
 echo "installed /usr/local/bin/containerd-shim-persistent-v2"

@@ -40,7 +40,7 @@ func TestSpecDocumentPreservesFieldsAndRemovesStateMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(encoded) == "" || !containsAll(string(encoded), `"process"`, `"/proc"`, `".persistent-rootfs-merged"`) {
+	if string(encoded) == "" || !containsAll(string(encoded), `"process"`, `"/proc"`, `/run/bundle/.persistent-rootfs-merged`) {
 		t.Fatalf("unexpected encoded spec: %s", encoded)
 	}
 }
