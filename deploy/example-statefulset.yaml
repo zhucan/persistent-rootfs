@@ -48,6 +48,8 @@ spec:
         labels:
           persistent-rootfs.io/state-volume: "true"
       spec:
+        volumeMode: Filesystem
+        storageClassName: csi-rbd-sc-nvme
         accessModes: ["ReadWriteOncePod"]
         resources:
           requests:
