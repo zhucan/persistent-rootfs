@@ -171,7 +171,21 @@ func mountOverlay(lower, upper, work, merged string) error {
 	if err := sameFilesystem(upper, work); err != nil {
 		return err
 	}
-	data := "lowerdir=" + lower + ",upperdir=" + upper + ",workdir=" + work + ",index=off,metacopy=off,nfs_export=off,redirect_dir=nofollow,xino=off"
+	data := "lowerdir=" + lower + ",upperdir=" + upper + ",workdir=" + work
+	parameters, err := os.ReadDir("/sys/module/overlay/parameters")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read OverlayFS module parameters: %w", err)
+	}
+	for _, parameter := range parameters {
+		switch parameter.Name() {
+		case "index", "metacopy", "nfs_export":
+			data += "," + parameter.Name() + "=off"
+		case "redirect_always_follow":
+			data += ",redirect_dir=nofollow"
+		case "xino_auto":
+			data += ",xino=off"
+		}
+	}
 	if err := unix.Mount("overlay", merged, "overlay", 0, data); err != nil {
 		return fmt.Errorf("mount overlay on %q: %w", merged, err)
 	}
