@@ -97,8 +97,10 @@ runc. Its binary and configuration must be root-owned.
 
 ## Current limitations
 
-- containerd 2.1.x only; the shim imports containerd's runc v2 implementation
-  and must be rebuilt and tested for each containerd minor upgrade.
+- The containerd 1.6/1.7 build returns a plain socket address, saves it in
+  the bundle for reconnection and serves `containerd.task.v2.Task`. The 2.1.x
+  build uses JSON bootstrap and `containerd.task.v3.Task`. Both use the same
+  runc task service and persistent layer lifecycle.
 - Linux, runc, and filesystem PVCs only.
 - One selected container and one writer per rootfs ID.
 - No rootless/user-namespace support.

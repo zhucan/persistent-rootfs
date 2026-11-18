@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Kubernetes with containerd 2.1.x and runc on Linux nodes.
+- Kubernetes with containerd 1.6/1.7 or 2.1.x and runc on Linux nodes.
 - Kubernetes 1.29 with admission webhooks and webhook match conditions enabled,
   and a CSI driver supporting `ReadWriteOncePod`. The installer does not require
   `ValidatingAdmissionPolicy` or its beta API.
@@ -27,7 +27,9 @@ docker push registry.example/persistent-rootfs-webhook:v0.1.0
 ## 2. Install the shim on each runtime node
 
 Copy `build/containerd-shim-persistent-v2` and the `deploy` directory to the
-node, then run:
+node for containerd 2.1.x. For containerd 1.6/1.7, build the legacy shim with
+`make shim-1x` and copy `build/1.x/containerd-shim-persistent-v2` instead.
+Install the selected binary on the node, passing its actual path:
 
 ```bash
 sudo sh deploy/install-node.sh build/containerd-shim-persistent-v2
@@ -37,7 +39,9 @@ If kubelet does not use `/var/lib/kubelet/pods`, edit
 `/etc/persistent-rootfs/config.json` and set the exact kubelet pod-directory
 prefix. Never add `/` as an allowed prefix.
 
-Merge `deploy/containerd-2.x.toml` into `/etc/containerd/config.toml`. Do not
+Merge `deploy/containerd-1.x.toml` (config version 2) for containerd 1.6/1.7
+or `deploy/containerd-2.x.toml` (config version 3) for 2.1.x into
+`/etc/containerd/config.toml`. Match `SystemdCgroup` to the node. Do not
 replace the complete containerd configuration with the snippet. Validate and
 restart containerd:
 

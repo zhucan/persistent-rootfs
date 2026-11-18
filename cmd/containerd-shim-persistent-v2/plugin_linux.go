@@ -61,6 +61,10 @@ type persistentTaskService struct {
 }
 
 func (s *persistentTaskService) RegisterTTRPC(server *ttrpc.Server) error {
+	if legacyBuild == "true" {
+		registerLegacyTask(server, s)
+		return nil
+	}
 	taskAPI.RegisterTTRPCTaskService(server, s)
 	return nil
 }

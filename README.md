@@ -16,7 +16,8 @@ ConfigMaps, `/proc`, and other PVC mounts retain their normal semantics.
 
 ## Status
 
-This is an engineering preview targeting containerd 2.1.x on Linux. It is
+This is an engineering preview targeting containerd 1.6/1.7 (`make shim-1x`)
+and 2.1.x (`make shim`) on Linux. It is
 suitable for controlled test nodes and single-replica stateful workloads. Read
 [the architecture](docs/architecture.md) and [the usage guide](docs/usage.md)
 before deploying it.

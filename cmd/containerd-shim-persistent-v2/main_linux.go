@@ -26,10 +26,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "initialize persistent rootfs lifecycle: %v\n", err)
 		os.Exit(1)
 	}
-	shim.Run(context.Background(), &persistentManager{
+	runtimeManager := &persistentManager{
 		Manager:   manager.NewShimManager("io.containerd.persistent.v2"),
 		lifecycle: lifecycle,
-	})
+	}
+	if legacyBuild == "true" && os.Args[len(os.Args)-1] == "start" {
+		if err := startLegacy(context.Background(), runtimeManager, os.Args[1:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	shim.Run(context.Background(), runtimeManager)
 }
 
 type persistentManager struct {

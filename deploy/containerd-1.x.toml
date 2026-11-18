@@ -1,0 +1,8 @@
+# Merge into a containerd 1.6/1.7 config with version = 2.
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.persistent-rootfs]
+  runtime_type = "io.containerd.persistent.v2"
+  pod_annotations = ["persistent-rootfs.io/*"]
+
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.persistent-rootfs.options]
+    BinaryName = "/usr/bin/runc"
+    SystemdCgroup = true
