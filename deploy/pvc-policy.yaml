@@ -1,0 +1,30 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: persistent-rootfs-pvc
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims"]
+  matchConditions:
+    - name: persistent-rootfs-volume
+      expression: (has(object.metadata.labels) && 'persistent-rootfs.io/state-volume' in object.metadata.labels && object.metadata.labels['persistent-rootfs.io/state-volume'] == 'true') || (oldObject != null && has(oldObject.metadata.labels) && 'persistent-rootfs.io/state-volume' in oldObject.metadata.labels && oldObject.metadata.labels['persistent-rootfs.io/state-volume'] == 'true')
+  validations:
+    - expression: has(object.metadata.labels) && 'persistent-rootfs.io/state-volume' in object.metadata.labels && object.metadata.labels['persistent-rootfs.io/state-volume'] == 'true'
+      message: persistent rootfs state PVC label cannot be removed
+    - expression: size(object.spec.accessModes) == 1 && object.spec.accessModes[0] == 'ReadWriteOncePod'
+      message: persistent rootfs state PVCs must use ReadWriteOncePod
+    - expression: !has(object.spec.volumeMode) || object.spec.volumeMode == 'Filesystem'
+      message: persistent rootfs state PVCs must use Filesystem volume mode
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: persistent-rootfs-pvc
+spec:
+  policyName: persistent-rootfs-pvc
+  validationActions: [Deny]

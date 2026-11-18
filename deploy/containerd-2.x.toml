@@ -1,0 +1,8 @@
+# Merge this snippet into /etc/containerd/config.toml (version = 3).
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.persistent-rootfs]
+  runtime_type = 'io.containerd.persistent.v2'
+  pod_annotations = ['persistent-rootfs.io/*']
+
+  [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.persistent-rootfs.options]
+    BinaryName = '/usr/bin/runc'
+    SystemdCgroup = true

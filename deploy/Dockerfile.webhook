@@ -1,0 +1,3 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY build/persistent-rootfs-webhook /persistent-rootfs-webhook
+ENTRYPOINT ["/persistent-rootfs-webhook"]

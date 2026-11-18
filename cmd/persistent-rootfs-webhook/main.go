@@ -1,0 +1,178 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+
+	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
+)
+
+const maxAdmissionBodyBytes = 4 << 20
+
+func main() {
+	listen := flag.String("listen", ":8443", "HTTPS listen address")
+	certFile := flag.String("tls-cert-file", "/tls/tls.crt", "TLS certificate")
+	keyFile := flag.String("tls-private-key-file", "/tls/tls.key", "TLS private key")
+	runtimeClass := flag.String("runtime-class", persistentrootfs.DefaultRuntimeClass, "RuntimeClass injected into selected Pods")
+	mountPath := flag.String("mount-path", persistentrootfs.DefaultVolumeDestination, "hidden rootfs state mount path")
+	flag.Parse()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	kube, err := newKubePVCClient(ctx)
+	if err != nil {
+		log.Fatalf("initialize Kubernetes PVC client: %v", err)
+	}
+
+	handler := http.NewServeMux()
+	handler.HandleFunc("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
+		if !kube.ready() {
+			http.Error(writer, "PVC cache is not synchronized", http.StatusServiceUnavailable)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok\n"))
+	})
+	handler.HandleFunc("/mutate", func(writer http.ResponseWriter, request *http.Request) {
+		handleAdmission(writer, request, func(review *persistentrootfs.AdmissionReview) persistentrootfs.AdmissionResponse {
+			return persistentrootfs.MutatePodWithPVCValidator(review.Request, *runtimeClass, *mountPath, func(namespace, claimName string) error {
+				return kube.validate(request.Context(), namespace, claimName)
+			})
+		})
+	})
+	handler.HandleFunc("/validate", func(writer http.ResponseWriter, request *http.Request) {
+		handleAdmission(writer, request, func(review *persistentrootfs.AdmissionReview) persistentrootfs.AdmissionResponse {
+			return persistentrootfs.ValidatePodWithPVCValidator(review.Request, *runtimeClass, *mountPath, func(namespace, claimName string) error {
+				return kube.validate(request.Context(), namespace, claimName)
+			})
+		})
+	})
+
+	server := &http.Server{
+		Addr:              *listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown admission webhook: %v", err)
+		}
+	}()
+	log.Printf("persistent rootfs admission webhook listening on %s", *listen)
+	if err := server.ListenAndServeTLS(*certFile, *keyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+
+func handleAdmission(writer http.ResponseWriter, request *http.Request, admit func(*persistentrootfs.AdmissionReview) persistentrootfs.AdmissionResponse) {
+	defer request.Body.Close()
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, maxAdmissionBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	var review persistentrootfs.AdmissionReview
+	if err := decoder.Decode(&review); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			http.Error(writer, "admission review is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(writer, fmt.Sprintf("decode admission review: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		http.Error(writer, "decode admission review: multiple JSON values", http.StatusBadRequest)
+		return
+	}
+	response := admit(&review)
+	result := persistentrootfs.AdmissionReview{APIVersion: review.APIVersion, Kind: review.Kind, Response: &response}
+	writer.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(writer).Encode(result); err != nil {
+		log.Printf("encode admission response: %v", err)
+	}
+}
+
+type kubePVCClient struct {
+	lister corelisters.PersistentVolumeClaimLister
+	synced cache.InformerSynced
+}
+
+func newKubePVCClient(ctx context.Context) (*kubePVCClient, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	factory := informers.NewSharedInformerFactory(client, 0)
+	pvcInformer := factory.Core().V1().PersistentVolumeClaims()
+	informer := pvcInformer.Informer()
+	kube := &kubePVCClient{
+		lister: pvcInformer.Lister(),
+		synced: informer.HasSynced,
+	}
+	factory.Start(ctx.Done())
+	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if !cache.WaitForCacheSync(syncCtx.Done(), kube.synced) {
+		return nil, fmt.Errorf("synchronize PVC informer cache")
+	}
+	return kube, nil
+}
+
+func (k *kubePVCClient) ready() bool {
+	return k != nil && k.synced != nil && k.synced()
+}
+
+func (k *kubePVCClient) validate(ctx context.Context, namespace, claimName string) error {
+	if namespace == "" || claimName == "" {
+		return fmt.Errorf("namespace and claim name are required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	pvc, err := k.lister.PersistentVolumeClaims(namespace).Get(claimName)
+	if err != nil {
+		return err
+	}
+	if pvc.Labels[persistentrootfs.LabelStateVolume] != "true" {
+		return fmt.Errorf("PVC must have label persistent-rootfs.io/state-volume=true")
+	}
+	if len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteOncePod {
+		return fmt.Errorf("PVC must use exactly ReadWriteOncePod")
+	}
+	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode != corev1.PersistentVolumeFilesystem {
+		return fmt.Errorf("PVC must use Filesystem volume mode")
+	}
+	return nil
+}

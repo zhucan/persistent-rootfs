@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: persistent-rootfs-demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shell
+  namespace: persistent-rootfs-demo
+spec:
+  clusterIP: None
+  selector:
+    app: persistent-rootfs-demo
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: shell
+  namespace: persistent-rootfs-demo
+spec:
+  serviceName: shell
+  replicas: 1
+  selector:
+    matchLabels:
+      app: persistent-rootfs-demo
+  template:
+    metadata:
+      labels:
+        app: persistent-rootfs-demo
+      annotations:
+        persistent-rootfs.io/enabled: "true"
+        persistent-rootfs.io/container-name: app
+        persistent-rootfs.io/rootfs-id: shell-0
+        persistent-rootfs.io/volume-name: rootfs-state
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: app
+          # Replace with a real immutable digest before applying.
+          image: busybox@sha256:REPLACE_WITH_64_HEX_DIGEST
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "container started; write any rootfs path and delete this Pod to test persistence"
+              exec sleep 365d
+  volumeClaimTemplates:
+    - metadata:
+        name: rootfs-state
+        labels:
+          persistent-rootfs.io/state-volume: "true"
+      spec:
+        accessModes: ["ReadWriteOncePod"]
+        resources:
+          requests:
+            storage: 2Gi

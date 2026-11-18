@@ -1,0 +1,8 @@
+{
+  "stateDir": "/run/persistent-rootfs",
+  "volumeDestination": "/run/.persistent-rootfs",
+  "allowedVolumePrefixes": [
+    "/var/lib/kubelet/pods"
+  ],
+  "requireBaseID": true
+}
