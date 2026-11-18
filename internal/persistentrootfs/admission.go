@@ -3,13 +3,10 @@ package persistentrootfs
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
 const DefaultRuntimeClass = "persistent-rootfs"
-
-var digestImage = regexp.MustCompile(`@sha256:[0-9a-fA-F]{64}$`)
 
 type AdmissionReview struct {
 	APIVersion string             `json:"apiVersion"`
@@ -160,13 +157,12 @@ func admitPod(request *AdmissionRequest, runtimeClass, mountPath string, validat
 	if annotations[AnnotationEnabled] != "true" {
 		return response
 	}
-	rootfsID := annotations[AnnotationRootfsID]
-	if err := ValidateRootfsID(rootfsID); err != nil {
-		return denyUID(request.UID, err.Error())
-	}
 	target := annotations[AnnotationContainerName]
 	if target == "" {
 		return denyUID(request.UID, AnnotationContainerName+" is required")
+	}
+	if err := ValidateRootfsID(workloadRootfsID(annotations, target)); err != nil {
+		return denyUID(request.UID, err.Error())
 	}
 	volumeName := annotations[AnnotationVolumeName]
 	if volumeName == "" {
@@ -220,9 +216,6 @@ func admitPod(request *AdmissionRequest, runtimeClass, mountPath string, validat
 			continue
 		}
 		containerIndex = index
-		if !digestImage.MatchString(container.Image) {
-			return denyUID(request.UID, fmt.Sprintf("container %q image must use an immutable sha256 digest", target))
-		}
 		for _, device := range container.VolumeDevices {
 			if _, ok := stateVolumeNames[device.Name]; ok {
 				return denyUID(request.UID, fmt.Sprintf("target container %q must mount state volume %q as a filesystem", target, device.Name))

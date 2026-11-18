@@ -32,8 +32,8 @@ The application never receives the PVC mount or `CAP_SYS_ADMIN`.
 
 For a selected application container, the shim:
 
-1. Reads the OCI annotations and validates the target container, stable
-   `rootfs-id`, and immutable base image identity.
+1. Reads the OCI annotations and selects the target container and its PVC-local
+   rootfs ID (the target container name unless a legacy ID is specified).
 2. Removes the hidden CSI mount from the OCI spec.
 3. Locks the rootfs state directory and checks the persistent metadata/lease.
 4. Mounts containerd's `CreateTaskRequest.Rootfs` at
@@ -80,9 +80,8 @@ PVC root
         └── work/
 ```
 
-`metadata.json` binds one rootfs ID to one base image identity. Changing the
-image digest fails closed. Allocate a new rootfs ID/PVC or perform an explicit
-offline migration after taking a CSI snapshot.
+`metadata.json` identifies the writable layer by rootfs ID. Its `baseID`
+records the original image for diagnostics; it does not pin subsequent mounts.
 
 ## Security boundaries
 
@@ -90,7 +89,7 @@ offline migration after taking a CSI snapshot.
 - Managed path components and mount targets reject symlinks and traversal.
 - Rootfs IDs use a restricted character set.
 - The application cannot access `upper` or `work` directly.
-- Mutable image tags are rejected by admission.
+- The state PVC, not the rootfs ID, is the storage isolation boundary.
 - RuntimeClass scheduling confines the shim to explicitly labeled nodes.
 
 The shim is a privileged node component equivalent in trust to containerd and

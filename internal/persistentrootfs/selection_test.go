@@ -18,6 +18,11 @@ func TestSelectContainer(t *testing.T) {
 	if !selection.Enabled || !selection.Selected || selection.RootfsID != "ns/workload-0/app" || selection.BaseID != base[CRIImageName] {
 		t.Fatalf("unexpected selection: %+v", selection)
 	}
+	delete(base, AnnotationRootfsID)
+	selection, err = SelectContainer(base, true)
+	if err != nil || selection.RootfsID != "app" {
+		t.Fatalf("default selection=%+v err=%v", selection, err)
+	}
 }
 
 func TestSelectContainerPassesSandboxAndSidecar(t *testing.T) {

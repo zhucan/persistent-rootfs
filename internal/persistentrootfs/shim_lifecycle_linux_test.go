@@ -144,6 +144,19 @@ func TestDeleteRejectsUnsupportedStateVersion(t *testing.T) {
 	}
 }
 
+func TestValidateShimMetadataAllowsNewImageButNotNewRootfsID(t *testing.T) {
+	root := t.TempDir()
+	if err := validateShimMetadata(root, "app", "busybox:old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateShimMetadata(root, "app", "busybox:new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateShimMetadata(root, "other", "busybox:old"); err == nil {
+		t.Fatal("accepted a different rootfs ID")
+	}
+}
+
 func TestValidateShimMetadataRejectsUnsupportedVersion(t *testing.T) {
 	root := t.TempDir()
 	metadata := RootfsMetadata{Version: shimStateVersion + 1, RootfsID: "app", BaseID: "image", CreatedAt: time.Now()}

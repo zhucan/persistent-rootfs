@@ -133,10 +133,10 @@ func TestMutatePodInjectsRuntimeAndMount(t *testing.T) {
 	}
 }
 
-func TestMutatePodRejectsMutableImage(t *testing.T) {
-	raw := []byte(`{"metadata":{"annotations":{"persistent-rootfs.io/enabled":"true","persistent-rootfs.io/rootfs-id":"app","persistent-rootfs.io/container-name":"app"}},"spec":{"volumes":[{"name":"rootfs-state","persistentVolumeClaim":{"claimName":"rootfs-state"}}],"containers":[{"name":"app","image":"busybox:latest"}]}}`)
+func TestMutatePodAllowsTagWithoutRootfsID(t *testing.T) {
+	raw := []byte(`{"metadata":{"annotations":{"persistent-rootfs.io/enabled":"true","persistent-rootfs.io/container-name":"app"}},"spec":{"volumes":[{"name":"rootfs-state","persistentVolumeClaim":{"claimName":"rootfs-state"}}],"containers":[{"name":"app","image":"busybox:latest"}]}}`)
 	response := MutatePod(&AdmissionRequest{UID: "2", Operation: "CREATE", Resource: GroupResource{Resource: "pods"}, Object: raw}, "", DefaultVolumeDestination)
-	if response.Allowed || response.Status == nil || !strings.Contains(response.Status.Message, "digest") {
+	if !response.Allowed || response.PatchType == nil {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 }

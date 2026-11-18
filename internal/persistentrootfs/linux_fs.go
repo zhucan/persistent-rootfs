@@ -171,7 +171,7 @@ func mountOverlay(lower, upper, work, merged string) error {
 	if err := sameFilesystem(upper, work); err != nil {
 		return err
 	}
-	data := "lowerdir=" + lower + ",upperdir=" + upper + ",workdir=" + work
+	data := "lowerdir=" + lower + ",upperdir=" + upper + ",workdir=" + work + ",index=off,metacopy=off,nfs_export=off,redirect_dir=nofollow,xino=off"
 	if err := unix.Mount("overlay", merged, "overlay", 0, data); err != nil {
 		return fmt.Errorf("mount overlay on %q: %w", merged, err)
 	}

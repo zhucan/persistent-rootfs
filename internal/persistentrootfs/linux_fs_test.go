@@ -7,7 +7,54 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestOverlayReusesUpperOnNewImage(t *testing.T) {
+	oldLower, newLower, upper, work, merged := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(dir, name, value string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, lower := range []string{oldLower, newLower} {
+		write(lower, "edited", "image default")
+		write(lower, "deleted", "image default")
+	}
+	write(newLower, "added", "new image")
+	if err := mountOverlay(oldLower, upper, work, merged); err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENODEV) || errors.Is(err, unix.EACCES) {
+			t.Skipf("requires OverlayFS mount privileges: %v", err)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := unmountOverlay(merged); err != nil {
+			t.Error(err)
+		}
+	})
+	write(merged, "edited", "user edit")
+	if err := os.Remove(filepath.Join(merged, "deleted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := unmountOverlay(merged); err != nil {
+		t.Fatal(err)
+	}
+	if err := mountOverlay(newLower, upper, work, merged); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"edited": "user edit", "added": "new image"} {
+		got, err := os.ReadFile(filepath.Join(merged, name))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s: got %q, want %q, err=%v", name, got, want, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(merged, "deleted")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected deleted file to remain hidden, got %v", err)
+	}
+}
 
 func TestLoadJSONNoFollowRejectsSymlink(t *testing.T) {
 	root := t.TempDir()

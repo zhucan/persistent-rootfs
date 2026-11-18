@@ -263,8 +263,8 @@ func validateShimMetadata(stateRoot, rootfsID, baseID string) error {
 	if metadata.Version != shimStateVersion {
 		return fmt.Errorf("unsupported rootfs metadata version %d", metadata.Version)
 	}
-	if metadata.RootfsID != rootfsID || metadata.BaseID != baseID {
-		return fmt.Errorf("persistent rootfs identity mismatch: stored rootfs=%q base=%q, requested rootfs=%q base=%q", metadata.RootfsID, metadata.BaseID, rootfsID, baseID)
+	if metadata.RootfsID != rootfsID {
+		return fmt.Errorf("persistent rootfs identity mismatch: stored rootfs=%q, requested rootfs=%q", metadata.RootfsID, rootfsID)
 	}
 	return nil
 }

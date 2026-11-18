@@ -31,14 +31,12 @@ spec:
       annotations:
         persistent-rootfs.io/enabled: "true"
         persistent-rootfs.io/container-name: app
-        persistent-rootfs.io/rootfs-id: shell-0
         persistent-rootfs.io/volume-name: rootfs-state
     spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: app
-          # Replace with a real immutable digest before applying.
-          image: busybox@sha256:REPLACE_WITH_64_HEX_DIGEST
+          image: busybox:latest
           command: ["/bin/sh", "-c"]
           args:
             - |

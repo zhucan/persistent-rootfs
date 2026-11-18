@@ -80,21 +80,25 @@ metadata:
   annotations:
     persistent-rootfs.io/enabled: "true"
     persistent-rootfs.io/container-name: app
-    persistent-rootfs.io/rootfs-id: stable-workload-identity
     persistent-rootfs.io/volume-name: rootfs-state
 ```
 
 Requirements:
 
-- `rootfs-id` remains stable across Pod recreation.
-- The selected image is an immutable `name@sha256:<64 hex>` reference.
+- Use a dedicated state PVC per workload replica. The writable layer defaults
+  to the selected container name inside that PVC. Identical names on separate
+  PVCs do not share state. Reusing the same PVC and name reuses the same layer;
+  `ReadWriteOncePod` prevents concurrent access, not later reuse by another Pod.
+- Existing workloads with an explicit `persistent-rootfs.io/rootfs-id` should
+  keep it: removing it selects a different directory if it differs from the
+  container name. Tags and digests are both supported.
 - `rootfs-state` is a PVC volume labeled
   `persistent-rootfs.io/state-volume=true`.
 - The PVC access mode is `ReadWriteOncePod`.
 - Do not manually add `runtimeClassName` or the hidden volume mount; the
   webhook injects both.
 
-Edit the digest and storage settings in `deploy/example-statefulset.yaml`, then
+Review the image and storage settings in `deploy/example-statefulset.yaml`, then
 apply it:
 
 ```bash
@@ -118,21 +122,17 @@ The final command must print `persisted`.
 ## Snapshot and restore
 
 Use the CSI driver's normal `VolumeSnapshot` API. For application-consistent
-snapshots, stop or quiesce the workload first. Restore to a new PVC, keep the
-same image digest, and use a new rootfs ID while validating the restored copy.
+snapshots, stop or quiesce the workload first. Restore to a new PVC and keep the
+same container name (or explicit legacy ID) to test the restored writable layer.
 
 ## Image upgrades
 
-An existing upper layer can hide files from a newer lower image, including
-security fixes. The runtime therefore rejects a changed base identity.
-
-Upgrade procedure:
-
-1. Stop the workload.
-2. Create and verify a CSI snapshot.
-3. Restore/clone to a new PVC or allocate a new rootfs ID.
-4. Run an application-specific offline migration if needed.
-5. Change the image digest and start the migrated copy.
+Update the workload image and recreate the Pod with the same state PVC and
+container name (or legacy ID). Saved files override the new image, including
+updated system files, and previously deleted paths remain hidden. Use a new
+PVC to start clean. Before upgrading a layer created by an older shim, take a
+snapshot and test a restored copy: older mounts used node-specific OverlayFS
+defaults and may contain metadata tied to the original lower layer.
 
 ## Troubleshooting
 
@@ -148,7 +148,6 @@ Common failures:
 | Message | Meaning |
 | --- | --- |
 | `outside allowed prefixes` | Kubelet root path is not in the node allowlist. |
-| `must use an immutable sha256 digest` | The image uses a tag or malformed digest. |
-| `identity mismatch` | The PVC/rootfs ID belongs to another base image. |
+| `identity mismatch` | The stored rootfs ID does not match the requested ID. |
 | `already active` | A live shim owns the same rootfs ID. |
 | `invalid argument` from overlay mount | The CSI filesystem does not meet OverlayFS upperdir requirements. |

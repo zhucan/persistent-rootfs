@@ -33,7 +33,7 @@ func SelectContainer(annotations map[string]string, requireBaseID bool) (Selecti
 	}
 
 	selection.Selected = true
-	selection.RootfsID = annotations[AnnotationRootfsID]
+	selection.RootfsID = workloadRootfsID(annotations, target)
 	if err := ValidateRootfsID(selection.RootfsID); err != nil {
 		return Selection{}, err
 	}
@@ -50,4 +50,11 @@ func SelectContainer(annotations map[string]string, requireBaseID bool) (Selecti
 		return Selection{}, fmt.Errorf("required CRI annotation %q is missing", CRIImageName)
 	}
 	return selection, nil
+}
+
+func workloadRootfsID(annotations map[string]string, target string) string {
+	if id, present := annotations[AnnotationRootfsID]; present {
+		return id
+	}
+	return target
 }
