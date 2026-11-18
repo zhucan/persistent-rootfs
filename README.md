@@ -22,6 +22,12 @@ suitable for controlled test nodes and single-replica stateful workloads. Read
 [the architecture](docs/architecture.md) and [the usage guide](docs/usage.md)
 before deploying it.
 
+The [example StatefulSet](deploy/example-statefulset.yaml) requests a
+`Filesystem` PVC with `ReadWriteOncePod` access. Its `storageClassName`,
+`csi-rbd-sc-nvme`, is an example, not a required class name. Before applying
+the manifest, set it to a CSI StorageClass in your cluster that supports this
+access mode and provisions an OverlayFS-compatible filesystem.
+
 ## Build
 
 ```bash

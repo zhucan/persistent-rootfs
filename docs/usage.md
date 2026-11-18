@@ -102,8 +102,10 @@ Requirements:
 - Do not manually add `runtimeClassName` or the hidden volume mount; the
   webhook injects both.
 
-Review the image and storage settings in `deploy/example-statefulset.yaml`, then
-apply it:
+In `deploy/example-statefulset.yaml`, set `storageClassName` in the claim
+template to your cluster's CSI StorageClass (`csi-rbd-sc-nvme` in the example).
+Keep `volumeMode: Filesystem` and `ReadWriteOncePod`. Review the container image,
+then apply the manifest:
 
 ```bash
 kubectl apply -f deploy/example-statefulset.yaml
