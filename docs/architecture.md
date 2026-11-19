@@ -30,12 +30,22 @@ The application never receives the PVC mount or `CAP_SYS_ADMIN`.
 
 ## CreateTask transaction
 
+Create, init-task Delete and shim Stop hold the same node-local file lock
+through the delegated runc call and persistent-layer processing. The lock is
+selected by hashing the containerd namespace and task ID into 256 slots.
+Tasks in the same slot serialize. Lock contention observes request cancellation
+and a 30-second deadline. This deadline applies to lock acquisition.
+
 For a selected application container, the shim:
 
 1. Reads the OCI annotations and selects the target container and its PVC-local
-   rootfs ID (the target container name unless a legacy ID is specified).
+   layer (the default on new volumes, or the matching legacy directory).
 2. Removes the hidden CSI mount from the OCI spec.
-3. Locks the rootfs state directory and checks the persistent metadata/lease.
+3. Locks the layer and writes a `claiming` journal with the planned lease and
+   original OCI spec. It publishes the lease, then writes `preparing` before
+   replacing the spec. Recovery of `claiming` only releases a matching lease.
+   Mount cleanup starts with `preparing`. The `active` state records completed
+   mount preparation and recovery checks runc for task existence.
 4. Mounts containerd's `CreateTaskRequest.Rootfs` at
    `.persistent-rootfs-lower` in the OCI bundle.
 5. Creates `upper` and `work` on the CSI volume.
@@ -72,7 +82,8 @@ protection and stale-owner detection.
 ```text
 PVC root
 └── .persistent-rootfs-runtime/
-    └── <rootfs-id>/
+    ├── @layout.lock
+    └── @default/  (legacy volumes use <rootfs-id>/)
         ├── active.json
         ├── lock
         ├── metadata.json

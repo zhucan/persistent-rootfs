@@ -4,6 +4,7 @@ package persistentrootfs
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -111,20 +113,36 @@ func prepareMergedDirectory(path string) error {
 	return nil
 }
 
-func lockFile(path string) (*os.File, error) {
+func lockFile(ctx context.Context, path string) (*os.File, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
-		unix.Close(fd)
-		return nil, err
+	for {
+		if err := ctx.Err(); err != nil {
+			unix.Close(fd)
+			return nil, fmt.Errorf("lock %q: %w", path, err)
+		}
+		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
+			unix.Close(fd)
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	return os.NewFile(uintptr(fd), path), nil
 }
 
 func loadJSONNoFollow(path string, value any) error {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
@@ -134,9 +152,23 @@ func loadJSONNoFollow(path string, value any) error {
 		return fmt.Errorf("open %q: invalid file descriptor", path)
 	}
 	defer file.Close()
-	raw, err := io.ReadAll(file)
+	limit := int64(64 << 10)
+	if _, journal := value.(*RuntimeState); journal {
+		limit = maxJournalBytes
+	}
+	info, err := file.Stat()
 	if err != nil {
 		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() > limit {
+		return fmt.Errorf("invalid metadata type or size at %q", path)
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > limit {
+		return fmt.Errorf("metadata exceeds size limit at %q", path)
 	}
 	return json.Unmarshal(raw, value)
 }
@@ -197,16 +229,17 @@ func unmountOverlay(path string) error {
 	if err != nil || !mounted {
 		return err
 	}
-	if err := unix.Unmount(path, 0); err == nil {
-		return nil
-	}
-	if err := unix.Unmount(path, unix.MNT_DETACH); err != nil {
+	if err := unix.Unmount(path, 0); err != nil {
 		return fmt.Errorf("unmount overlay %q: %w", path, err)
 	}
 	return nil
 }
 
 func isMountPoint(path string) (bool, error) {
+	return hasMount(path, false)
+}
+
+func hasMount(path string, includeChildren bool) (bool, error) {
 	file, err := os.Open("/proc/self/mountinfo")
 	if err != nil {
 		return false, err
@@ -216,7 +249,11 @@ func isMountPoint(path string) (bool, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) > 4 && filepath.Clean(unescapeMountInfo(fields[4])) == want {
+		if len(fields) <= 4 {
+			continue
+		}
+		point := filepath.Clean(unescapeMountInfo(fields[4]))
+		if point == want || (includeChildren && strings.HasPrefix(point, want+"/")) {
 			return true, nil
 		}
 	}

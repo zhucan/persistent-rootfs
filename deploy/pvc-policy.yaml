@@ -14,6 +14,8 @@ spec:
     - name: persistent-rootfs-volume
       expression: (has(object.metadata.labels) && 'persistent-rootfs.io/state-volume' in object.metadata.labels && object.metadata.labels['persistent-rootfs.io/state-volume'] == 'true') || (oldObject != null && has(oldObject.metadata.labels) && 'persistent-rootfs.io/state-volume' in oldObject.metadata.labels && oldObject.metadata.labels['persistent-rootfs.io/state-volume'] == 'true')
   validations:
+    - expression: oldObject == null || (has(oldObject.metadata.labels) && 'persistent-rootfs.io/state-volume' in oldObject.metadata.labels && oldObject.metadata.labels['persistent-rootfs.io/state-volume'] == 'true')
+      message: persistent rootfs state PVCs must be labeled at creation
     - expression: has(object.metadata.labels) && 'persistent-rootfs.io/state-volume' in object.metadata.labels && object.metadata.labels['persistent-rootfs.io/state-volume'] == 'true'
       message: persistent rootfs state PVC label cannot be removed
     - expression: size(object.spec.accessModes) == 1 && object.spec.accessModes[0] == 'ReadWriteOncePod'

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -64,6 +65,17 @@ func main() {
 	})
 	handler.HandleFunc("/validate", func(writer http.ResponseWriter, request *http.Request) {
 		handleAdmission(writer, request, func(review *persistentrootfs.AdmissionReview) persistentrootfs.AdmissionResponse {
+			if review.Request != nil {
+				if err := checkClaimUses(request.Context(), review.Request, func(ctx context.Context, namespace, name string) (bool, error) {
+					claim, err := kube.client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+					if err != nil {
+						return false, err
+					}
+					return claim.Labels[persistentrootfs.LabelStateVolume] == "true", nil
+				}); err != nil {
+					return persistentrootfs.AdmissionResponse{UID: review.Request.UID, Status: &persistentrootfs.Status{Code: http.StatusForbidden, Message: err.Error()}}
+				}
+			}
 			return persistentrootfs.ValidatePodWithPVCValidator(review.Request, *runtimeClass, *mountPath, func(namespace, claimName string) error {
 				return kube.validate(request.Context(), namespace, claimName)
 			})
@@ -130,6 +142,7 @@ func handleAdmission(writer http.ResponseWriter, request *http.Request, admit fu
 }
 
 type kubePVCClient struct {
+	client kubernetes.Interface
 	lister corelisters.PersistentVolumeClaimLister
 	synced cache.InformerSynced
 }
@@ -147,6 +160,7 @@ func newKubePVCClient(ctx context.Context) (*kubePVCClient, error) {
 	pvcInformer := factory.Core().V1().PersistentVolumeClaims()
 	informer := pvcInformer.Informer()
 	kube := &kubePVCClient{
+		client: client,
 		lister: pvcInformer.Lister(),
 		synced: informer.HasSynced,
 	}
@@ -216,6 +230,9 @@ func admitPVC(review *persistentrootfs.AdmissionReview) persistentrootfs.Admissi
 		}
 		if oldPVC.Labels[persistentrootfs.LabelStateVolume] == "true" && !selected {
 			return deny("persistent rootfs state PVC label cannot be removed")
+		}
+		if oldPVC.Labels[persistentrootfs.LabelStateVolume] != "true" && selected {
+			return deny("persistent rootfs state PVCs must be labeled at creation")
 		}
 	}
 	if selected {

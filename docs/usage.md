@@ -89,13 +89,21 @@ metadata:
 
 Requirements:
 
-- Use a dedicated state PVC per workload replica. The writable layer defaults
-  to the selected container name inside that PVC. Identical names on separate
-  PVCs do not share state. Reusing the same PVC and name reuses the same layer;
-  `ReadWriteOncePod` prevents concurrent access, not later reuse by another Pod.
+- Use a dedicated state PVC per workload replica. A fresh PVC without an explicit
+  rootfs ID gets one default layer with a generated UUID in `metadata.json`.
+  Reusing this PVC reuses that layer even after a container rename. Snapshots
+  and clones retain the recorded UUID. Upgrade all eligible shim nodes before
+  using the new layout; an older shim selects a directory by container name.
+- Legacy volumes still select the original directory by explicit ID or container
+  name. If the selection does not match existing metadata, startup fails. After
+  renaming a legacy container, specify its former ID to reuse the layer.
+- The validating webhook checks direct PVC references against the API server.
+  Create claims before their Pods. Unavailable claims or an unavailable webhook
+  block admission for Pods referencing PVCs. Set the state label at claim creation.
+  Ordinary Pods cannot directly mount labeled claims. Restrict who can create
+  opted-in workloads or replace PVCs in a shared namespace to enforce tenant ownership.
 - Existing workloads with an explicit `persistent-rootfs.io/rootfs-id` should
-  keep it: removing it selects a different directory if it differs from the
-  container name. Tags and digests are both supported.
+  keep it to select their existing layer. Tags and digests are both supported.
 - `rootfs-state` is a PVC volume labeled
   `persistent-rootfs.io/state-volume=true`.
 - The PVC access mode is `ReadWriteOncePod`.
@@ -155,5 +163,7 @@ Common failures:
 | --- | --- |
 | `outside allowed prefixes` | Kubelet root path is not in the node allowlist. |
 | `identity mismatch` | The stored rootfs ID does not match the requested ID. |
-| `already active` | A live shim owns the same rootfs ID. |
+| `requires owner cleanup or verified storage fencing` | Finish cleanup of the previous task. On node loss, verify the storage backend has revoked the old node's write access and the old mounts are gone before administratively clearing a stranded lease. |
+| `device or resource busy` during deletion | Release references to the merged mount and retry deletion. The shim preserves the lower mount, journal and lease for the retry. |
+| `cannot verify runtime for legacy journal` | Restore the original bundle options from trusted configuration so cleanup can check the correct runc root. New journals store the runtime root and binary. |
 | `invalid argument` from overlay mount | The CSI filesystem does not meet OverlayFS upperdir requirements. |

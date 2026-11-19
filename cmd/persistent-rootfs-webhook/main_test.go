@@ -29,8 +29,8 @@ func TestPVCAdmission(t *testing.T) {
 		{"wrong mode", "CREATE", strings.Replace(valid, "ReadWriteOncePod", "ReadWriteOnce", 1), "", false},
 		{"extra mode", "CREATE", strings.Replace(valid, `"ReadWriteOncePod"`, `"ReadWriteOncePod","ReadWriteOnce"`, 1), "", false},
 		{"label removed", "UPDATE", ordinary, valid, false},
+		{"existing ordinary claim cannot become protected", "UPDATE", valid, ordinary, false},
 		{"label disabled", "UPDATE", strings.Replace(valid, "true", "false", 1), valid, false},
-		{"label added", "UPDATE", valid, ordinary, true},
 		{"label added to invalid claim", "UPDATE", strings.Replace(valid, "ReadWriteOncePod", "ReadWriteOnce", 1), ordinary, false},
 		{"unchanged state claim", "UPDATE", valid, valid, true},
 		{"ordinary claim", "UPDATE", ordinary, ordinary, true},
@@ -44,6 +44,30 @@ func TestPVCAdmission(t *testing.T) {
 				t.Fatalf("unexpected admission result: %+v", response)
 			}
 		})
+	}
+}
+
+func TestProtectedClaimUse(t *testing.T) {
+	for _, test := range []struct {
+		enabled, name, claim string
+		allowed              bool
+	}{
+		{"false", "data", "protected", false},
+		{"false", "data", "ordinary", true},
+		{"true", "data", "protected", false},
+		{"true", "rootfs-state", "protected", true},
+		{"true", "rootfs-state", "ordinary", false},
+	} {
+		pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{persistentrootfs.AnnotationEnabled: test.enabled}}}
+		pod.Spec.Volumes = []corev1.Volume{{Name: test.name, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: test.claim}}}}
+		raw, err := json.Marshal(pod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = checkClaimUses(context.Background(), &persistentrootfs.AdmissionRequest{Object: raw}, func(_ context.Context, _, name string) (bool, error) { return name == "protected", nil })
+		if (err == nil) != test.allowed {
+			t.Errorf("%+v: %v", test, err)
+		}
 	}
 }
 

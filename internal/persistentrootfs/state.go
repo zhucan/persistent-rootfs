@@ -12,20 +12,24 @@ import (
 )
 
 const stateVersion = 1
+const maxJournalBytes = 32 << 20
 
 type RuntimeState struct {
-	Version     int       `json:"version"`
-	ContainerID string    `json:"containerID"`
-	RuncRoot    string    `json:"runcRoot"`
-	Bundle      string    `json:"bundle"`
-	Merged      string    `json:"merged"`
-	Lower       string    `json:"lower,omitempty"`
-	StateRoot   string    `json:"stateRoot"`
-	RootfsID    string    `json:"rootfsID"`
-	BaseID      string    `json:"baseID"`
-	Status      string    `json:"status"`
-	Lease       ShimLease `json:"lease"`
-	CreatedAt   time.Time `json:"createdAt"`
+	Version      int         `json:"version"`
+	ContainerID  string      `json:"containerID"`
+	RuncRoot     string      `json:"runcRoot"`
+	RuncBinary   string      `json:"runcBinary,omitempty"`
+	Bundle       string      `json:"bundle"`
+	Merged       string      `json:"merged"`
+	Lower        string      `json:"lower,omitempty"`
+	StateRoot    string      `json:"stateRoot"`
+	RootfsID     string      `json:"rootfsID"`
+	BaseID       string      `json:"baseID"`
+	Status       string      `json:"status"`
+	OriginalSpec []byte      `json:"originalSpec,omitempty"`
+	SpecMode     os.FileMode `json:"specMode,omitempty"`
+	Lease        ShimLease   `json:"lease"`
+	CreatedAt    time.Time   `json:"createdAt"`
 }
 
 type ShimLease struct {
@@ -79,6 +83,9 @@ func SaveJSON(path string, value any, mode os.FileMode) error {
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
+	}
+	if _, journal := value.(RuntimeState); journal && len(raw)+1 > maxJournalBytes {
+		return fmt.Errorf("runtime journal exceeds %d bytes", maxJournalBytes)
 	}
 	return WriteFileAtomic(path, append(raw, '\n'), mode)
 }
