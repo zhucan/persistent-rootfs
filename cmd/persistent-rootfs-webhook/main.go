@@ -91,17 +91,29 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	go func() {
-		<-ctx.Done()
+	log.Printf("persistent rootfs admission webhook listening on %s", *listen)
+	if err := serveUntilShutdown(ctx, server, func() error { return server.ListenAndServeTLS(*certFile, *keyFile) }); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func serveUntilShutdown(ctx context.Context, server *http.Server, serve func() error) error {
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- serve() }()
+	select {
+	case err := <-serveDone:
+		return err
+	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("shutdown admission webhook: %v", err)
+			return fmt.Errorf("shutdown admission webhook: %w", err)
 		}
-	}()
-	log.Printf("persistent rootfs admission webhook listening on %s", *listen)
-	if err := server.ListenAndServeTLS(*certFile, *keyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		err := <-serveDone
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
 	}
 }
 

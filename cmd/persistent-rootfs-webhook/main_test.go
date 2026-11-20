@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,64 @@ import (
 
 	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
 )
+
+func TestShutdownDrainsActiveRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		close(entered)
+		<-release
+		writer.WriteHeader(http.StatusNoContent)
+	})}
+	stoppedListening := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- serveUntilShutdown(ctx, server, func() error {
+			defer close(stoppedListening)
+			return server.Serve(listener)
+		})
+	}()
+	client := &http.Client{Timeout: 5 * time.Second}
+	responseDone := make(chan error, 1)
+	go func() {
+		response, err := client.Get("http://" + listener.Addr().String())
+		if err == nil {
+			response.Body.Close()
+		}
+		responseDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not reach handler")
+	}
+	cancel()
+	select {
+	case <-stoppedListening:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener did not stop")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("shutdown returned with active request: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	release <- struct{}{}
+	if err := <-responseDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestPVCAdmission(t *testing.T) {
 	const valid = `{"metadata":{"labels":{"persistent-rootfs.io/state-volume":"true"}},"spec":{"accessModes":["ReadWriteOncePod"]}}`
