@@ -107,6 +107,53 @@ func TestPVCAdmission(t *testing.T) {
 	}
 }
 
+func TestCacheReadinessTransition(t *testing.T) {
+	synced := false
+	kube := kubePVCClient{synced: func() bool { return synced }}
+	calls := 0
+	handler := kube.whenReady(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/healthz", "/validate-pvc", "/validate", "/mutate"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusServiceUnavailable || calls != 0 {
+			t.Fatalf("unsynced %s: status=%d calls=%d", path, response.Code, calls)
+		}
+	}
+	synced = true
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/validate", nil))
+	if response.Code != http.StatusOK || calls != 1 {
+		t.Fatalf("synced: status=%d calls=%d", response.Code, calls)
+	}
+}
+
+func TestClaimAliasesShareOnlyTheLookup(t *testing.T) {
+	pod := corev1.Pod{}
+	for _, name := range []string{"rootfs-state", "data"} {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "shared"}}})
+	}
+	for _, protected := range []bool{false, true} {
+		if protected {
+			pod.Annotations = map[string]string{persistentrootfs.AnnotationEnabled: "true"}
+		}
+		raw, err := json.Marshal(pod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls := 0
+		err = checkClaimUses(context.Background(), &persistentrootfs.AdmissionRequest{Object: raw}, func(context.Context, string, string) (bool, error) {
+			calls++
+			return protected, nil
+		})
+		if calls != 1 || (err != nil) != protected {
+			t.Fatalf("protected=%v: calls=%d err=%v", protected, calls, err)
+		}
+	}
+}
+
 func TestProtectedClaimUse(t *testing.T) {
 	for _, test := range []struct {
 		enabled, name, claim string

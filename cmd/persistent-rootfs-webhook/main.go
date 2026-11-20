@@ -49,10 +49,6 @@ func main() {
 		handleAdmission(writer, request, admitPVC)
 	})
 	handler.HandleFunc("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
-		if !kube.ready() {
-			http.Error(writer, "PVC cache is not synchronized", http.StatusServiceUnavailable)
-			return
-		}
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write([]byte("ok\n"))
 	})
@@ -84,7 +80,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           handler,
+		Handler:           kube.whenReady(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -177,16 +173,17 @@ func newKubePVCClient(ctx context.Context) (*kubePVCClient, error) {
 		synced: informer.HasSynced,
 	}
 	factory.Start(ctx.Done())
-	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if !cache.WaitForCacheSync(syncCtx.Done(), kube.synced) {
-		return nil, fmt.Errorf("synchronize PVC informer cache")
-	}
 	return kube, nil
 }
 
-func (k *kubePVCClient) ready() bool {
-	return k != nil && k.synced != nil && k.synced()
+func (k *kubePVCClient) whenReady(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !k.synced() {
+			http.Error(writer, "PVC cache is not synchronized", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
 }
 
 func (k *kubePVCClient) validate(ctx context.Context, namespace, claimName string) error {

@@ -19,6 +19,7 @@ func checkClaimUses(ctx context.Context, req *persistentrootfs.AdmissionRequest,
 	if stateVolume == "" {
 		stateVolume = "rootfs-state"
 	}
+	checked := make(map[string]bool)
 	for _, volume := range pod.Spec.Volumes {
 		if volume.Ephemeral != nil && volume.Ephemeral.VolumeClaimTemplate != nil && volume.Ephemeral.VolumeClaimTemplate.Labels[persistentrootfs.LabelStateVolume] == "true" {
 			return fmt.Errorf("protected PVCs require a dedicated persistent volume claim")
@@ -27,9 +28,14 @@ func checkClaimUses(ctx context.Context, req *persistentrootfs.AdmissionRequest,
 		if claim == nil {
 			continue
 		}
-		isProtected, err := protected(ctx, req.Namespace, claim.ClaimName)
-		if err != nil {
-			return fmt.Errorf("verify volume %q: %w", volume.Name, err)
+		isProtected, found := checked[claim.ClaimName]
+		if !found {
+			var err error
+			isProtected, err = protected(ctx, req.Namespace, claim.ClaimName)
+			if err != nil {
+				return fmt.Errorf("verify volume %q: %w", volume.Name, err)
+			}
+			checked[claim.ClaimName] = isProtected
 		}
 		if isProtected != (enabled && volume.Name == stateVolume) {
 			return fmt.Errorf("protected PVCs may only be used as the declared persistent rootfs state volume: %q", volume.Name)
