@@ -49,7 +49,7 @@ func LoadConfig(path string) (Config, error) {
 		path = DefaultConfigPath
 	}
 	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if path == DefaultConfigPath && errors.Is(err, os.ErrNotExist) {
 		return cfg, cfg.Validate()
 	}
 	if err != nil {
@@ -57,8 +57,12 @@ func LoadConfig(path string) (Config, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&cfg); err != nil {
+	configObject := &cfg
+	if err := decoder.Decode(&configObject); err != nil {
 		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
+	}
+	if configObject == nil {
+		return Config{}, fmt.Errorf("decode config %q: expected a JSON object", path)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {

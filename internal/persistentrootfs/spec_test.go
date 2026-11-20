@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func TestReadSpecRejectsNullDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := ReadSpec(path); err == nil {
+		t.Fatal("accepted null OCI spec")
+	}
+}
+
+func TestSetRootPathRejectsNullRoot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"root":null}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, _, err := ReadSpec(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetRootPath("rootfs"); err == nil {
+		t.Fatal("accepted null OCI root")
+	}
+}
+
 func TestSpecDocumentPreservesFieldsAndRemovesStateMount(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

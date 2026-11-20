@@ -3,6 +3,7 @@ package persistentrootfs
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,17 +15,25 @@ type SpecDocument struct {
 }
 
 func ReadSpec(path string) (*SpecDocument, []byte, os.FileMode, error) {
-	info, err := os.Stat(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("open OCI spec: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("stat OCI spec: %w", err)
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := io.ReadAll(file)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("read OCI spec: %w", err)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return nil, nil, 0, fmt.Errorf("decode OCI spec: %w", err)
+	}
+	if fields == nil {
+		return nil, nil, 0, fmt.Errorf("decode OCI spec: expected a JSON object")
 	}
 	return &SpecDocument{fields: fields}, raw, info.Mode().Perm(), nil
 }
@@ -120,6 +129,9 @@ func (s *SpecDocument) object(name string) (map[string]json.RawMessage, error) {
 	var value map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, fmt.Errorf("decode OCI %s: %w", name, err)
+	}
+	if value == nil {
+		return nil, fmt.Errorf("OCI %s must be an object", name)
 	}
 	return value, nil
 }
