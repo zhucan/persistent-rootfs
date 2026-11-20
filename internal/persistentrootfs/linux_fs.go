@@ -3,7 +3,6 @@
 package persistentrootfs
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -245,22 +244,5 @@ func hasMount(path string, includeChildren bool) (bool, error) {
 		return false, err
 	}
 	defer file.Close()
-	want := filepath.Clean(path)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) <= 4 {
-			continue
-		}
-		point := filepath.Clean(unescapeMountInfo(fields[4]))
-		if point == want || (includeChildren && strings.HasPrefix(point, want+"/")) {
-			return true, nil
-		}
-	}
-	return false, scanner.Err()
-}
-
-func unescapeMountInfo(value string) string {
-	replacer := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
-	return replacer.Replace(value)
+	return findMountPoint(file, path, includeChildren)
 }
