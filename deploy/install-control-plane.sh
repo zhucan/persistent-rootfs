@@ -52,20 +52,21 @@ openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days "$CERT_VALID_DAYS" \
   -config "$TMP/openssl.cnf" -extensions webhook \
   -keyout "$TMP/tls.key" -out "$TMP/tls.crt"
 
-CA_BUNDLE=$(base64 <"$TMP/tls.crt" | tr -d '\r\n')
+base64 <"$TMP/tls.crt" >"$TMP/ca.b64"
+CA_BUNDLE=$(tr -d '\r\n' <"$TMP/ca.b64")
 else
   CA_BUNDLE=$(kubectl -n "$NAMESPACE" get secret "$SECRET" -o 'jsonpath={.data.tls\.crt}')
-  [ -n "$CA_BUNDLE" ] || { echo "$SECRET has no tls.crt" >&2; exit 1; }
 fi
-sed \
-  -e "s|registry.example/persistent-rootfs-webhook:REPLACE_ME|$IMAGE|g" \
-  -e "s|REPLACE_WITH_BASE64_CA|$CA_BUNDLE|g" \
-  "$SCRIPT_DIR/webhook.yaml" >"$TMP/webhook.yaml"
-kubectl apply --dry-run=server -f "$TMP/webhook.yaml"
+[ -n "$CA_BUNDLE" ] || { echo "empty CA bundle for $SECRET" >&2; exit 1; }
+sed "s|registry.example/persistent-rootfs-webhook:REPLACE_ME|$IMAGE|g" \
+  "$SCRIPT_DIR/webhook-backend.yaml" >"$TMP/webhook-backend.yaml"
+sed "s|REPLACE_WITH_BASE64_CA|$CA_BUNDLE|g" \
+  "$SCRIPT_DIR/webhook-admission.yaml" >"$TMP/webhook-admission.yaml"
+kubectl apply --dry-run=server -f "$TMP/webhook-backend.yaml" -f "$TMP/webhook-admission.yaml"
 if [ -z "$secret_name" ]; then
   kubectl -n "$NAMESPACE" create secret tls "$SECRET" --cert="$TMP/tls.crt" --key="$TMP/tls.key"
 fi
 kubectl apply -f "$SCRIPT_DIR/runtimeclass.yaml"
-kubectl apply -f "$TMP/webhook.yaml"
-
+kubectl apply -f "$TMP/webhook-backend.yaml"
 kubectl -n "$NAMESPACE" rollout status deployment/persistent-rootfs-webhook --timeout=5m
+kubectl apply -f "$TMP/webhook-admission.yaml"

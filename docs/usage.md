@@ -74,6 +74,9 @@ On first install the script creates a self-signed webhook certificate valid for
 override the validity period. Re-running the installer reuses the existing TLS
 Secret; it does not renew certificates. It checks the manifests with server-side
 dry-run before installing them (the namespace must exist for namespaced checks).
+The installer waits for the backend rollout before applying the fail-closed
+admission registrations. If rollout fails, fix the backend and rerun the installer;
+existing registrations are not removed during upgrades.
 
 ## 4. Configure a workload
 
