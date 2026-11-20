@@ -2,7 +2,7 @@
 
 Run `go test -count=1 ./...` on Linux and install the build under test on isolated nodes using the target containerd version and CSI StorageClass. Record the commit, kernel, containerd patch version, runc version and CSI driver version for each run. Repeat with the 1.x shim build for each deployed containerd 1.x version.
 
-Deploy the example StatefulSet with a disposable PVC. Choose a unique token for each scenario. Run `bash deploy/check-rootfs-recovery.sh CONTEXT NAMESPACE seed TOKEN`, apply the fault, wait for the application to become Ready, then run the same command with `verify`. Keep both outputs. For Pod replacement the Pod UID must change and the PVC UID must stay the same.
+Deploy the example StatefulSet with a disposable PVC. Choose a fresh token for each scenario. Run `bash deploy/check-rootfs-recovery.sh CONTEXT NAMESPACE seed TOKEN` and save the output. For each Pod replacement, record the Pod UID immediately before deletion, wait for the replacement to become Ready, then run `bash deploy/check-rootfs-recovery.sh CONTEXT NAMESPACE verify-replacement TOKEN PREVIOUS_POD_UID`. Keep the output and use the newly observed UID before the next deletion. For faults where the Pod can retain its UID, use `verify TOKEN` instead; that mode proves data continuity, not replacement. In both cases collect the separate fault and cleanup evidence below.
 
 | Scenario | Action in the isolated environment | Evidence required |
 | --- | --- | --- |
