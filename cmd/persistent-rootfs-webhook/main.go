@@ -80,7 +80,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           kube.whenReady(handler),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -176,22 +176,19 @@ func newKubePVCClient(ctx context.Context) (*kubePVCClient, error) {
 	return kube, nil
 }
 
-func (k *kubePVCClient) whenReady(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !k.synced() {
-			http.Error(writer, "PVC cache is not synchronized", http.StatusServiceUnavailable)
-			return
-		}
-		next.ServeHTTP(writer, request)
-	})
-}
-
 func (k *kubePVCClient) validate(ctx context.Context, namespace, claimName string) error {
 	if namespace == "" || claimName == "" {
 		return fmt.Errorf("namespace and claim name are required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if !k.synced() {
+		pvc, err := k.client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		return validateStatePVC(pvc)
 	}
 	pvc, err := k.lister.PersistentVolumeClaims(namespace).Get(claimName)
 	if err != nil {

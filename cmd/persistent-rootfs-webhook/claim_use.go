@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
+	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
 )
 
 func checkClaimUses(ctx context.Context, req *persistentrootfs.AdmissionRequest, protected func(context.Context, string, string) (bool, error)) error {
@@ -19,7 +21,7 @@ func checkClaimUses(ctx context.Context, req *persistentrootfs.AdmissionRequest,
 	if stateVolume == "" {
 		stateVolume = "rootfs-state"
 	}
-	checked := make(map[string]bool)
+	claims := make(map[string][]string)
 	for _, volume := range pod.Spec.Volumes {
 		if volume.Ephemeral != nil && volume.Ephemeral.VolumeClaimTemplate != nil && volume.Ephemeral.VolumeClaimTemplate.Labels[persistentrootfs.LabelStateVolume] == "true" {
 			return fmt.Errorf("protected PVCs require a dedicated persistent volume claim")
@@ -28,18 +30,29 @@ func checkClaimUses(ctx context.Context, req *persistentrootfs.AdmissionRequest,
 		if claim == nil {
 			continue
 		}
-		isProtected, found := checked[claim.ClaimName]
-		if !found {
-			var err error
-			isProtected, err = protected(ctx, req.Namespace, claim.ClaimName)
-			if err != nil {
-				return fmt.Errorf("verify volume %q: %w", volume.Name, err)
-			}
-			checked[claim.ClaimName] = isProtected
-		}
-		if isProtected != (enabled && volume.Name == stateVolume) {
-			return fmt.Errorf("protected PVCs may only be used as the declared persistent rootfs state volume: %q", volume.Name)
-		}
+		claims[claim.ClaimName] = append(claims[claim.ClaimName], volume.Name)
 	}
-	return nil
+	group, lookupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for claimName, volumes := range claims {
+		if lookupCtx.Err() != nil {
+			break
+		}
+		group.Go(func() error {
+			isProtected, err := protected(lookupCtx, req.Namespace, claimName)
+			if err != nil {
+				return fmt.Errorf("verify PVC %q: %w", claimName, err)
+			}
+			for _, name := range volumes {
+				if isProtected != (enabled && name == stateVolume) {
+					return fmt.Errorf("protected PVCs may only be used as the declared persistent rootfs state volume: %q", name)
+				}
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	return ctx.Err()
 }

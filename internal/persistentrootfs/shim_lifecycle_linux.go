@@ -4,12 +4,16 @@ package persistentrootfs
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const shimStateVersion = 3
@@ -99,7 +103,17 @@ func (l *ShimLifecycle) LockTask(ctx context.Context, id string) (*os.File, erro
 		return nil, err
 	}
 	key := filepath.Base(StateFile(l.config.StateDir, l.namespace+"\x00"+id))
-	return lockFile(ctx, filepath.Join(l.config.StateDir, "task-"+key[:2]+".lock"))
+	digest, err := hex.DecodeString(key[2:18])
+	if err != nil {
+		return nil, err
+	}
+	offset := int64(binary.BigEndian.Uint64(digest) >> 1)
+	return acquireFileLock(ctx, filepath.Join(l.config.StateDir, "task-"+key[:2]+".lock"), func(fd int) error {
+		if err := unix.Flock(fd, unix.LOCK_SH|unix.LOCK_NB); err != nil {
+			return err
+		}
+		return unix.FcntlFlock(uintptr(fd), unix.F_OFD_SETLK, &unix.Flock_t{Type: unix.F_WRLCK, Start: offset, Len: 1})
+	})
 }
 
 func (l *ShimLifecycle) lockContext() context.Context {

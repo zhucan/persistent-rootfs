@@ -12,6 +12,7 @@ require (
 	github.com/containerd/ttrpc v1.2.7
 	github.com/containerd/typeurl/v2 v2.2.3
 	github.com/google/uuid v1.6.0
+	golang.org/x/sync v0.14.0
 	golang.org/x/sys v0.33.0
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
@@ -63,7 +64,6 @@ require (
 	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
-	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.7.0 // indirect

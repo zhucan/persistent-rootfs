@@ -32,8 +32,10 @@ The application never receives the PVC mount or `CAP_SYS_ADMIN`.
 
 Create, init-task Delete and shim Stop hold the same node-local file lock
 through the delegated runc call and persistent-layer processing. The lock is
-selected by hashing the containerd namespace and task ID into 256 slots.
-Tasks in the same slot serialize. Lock contention observes request cancellation
+selected by hashing the containerd namespace and task ID into 256 files.
+Each task locks a hashed byte range using a Linux open-file-description lock.
+A shared flock on the same file coordinates with the exclusive flock in older shims.
+Lock contention observes request cancellation
 and a 30-second deadline. This deadline applies to lock acquisition.
 
 For a selected application container, the shim:

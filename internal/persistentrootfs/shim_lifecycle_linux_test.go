@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"golang.org/x/sys/unix"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func selectLayer(root, requested, base string, explicit bool) (string, string, error) {
@@ -39,6 +41,37 @@ func TestTaskLockDeadline(t *testing.T) {
 	if _, err := deleter.LockTask(ctx, "task"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("second operation: %v", err)
 	}
+}
+
+func TestTaskLockBucketCompatibility(t *testing.T) {
+	root := t.TempDir()
+	lifecycle := &ShimLifecycle{config: Config{StateDir: root}, namespace: "ns"}
+	guard, err := lifecycle.LockTask(context.Background(), "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.Close()
+	for index := range 10000 {
+		id := fmt.Sprintf("other-%d", index)
+		key := filepath.Base(StateFile(root, "ns\x00"+id))
+		if filepath.Base(guard.Name()) != "task-"+key[:2]+".lock" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		other, err := lifecycle.LockTask(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other.Close()
+		legacyCtx, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+		defer stop()
+		if _, err := lockFile(legacyCtx, guard.Name()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("legacy exclusive lock should wait: %v", err)
+		}
+		return
+	}
+	t.Fatal("no colliding test IDs")
 }
 
 func TestClaimIntentRecovery(t *testing.T) {

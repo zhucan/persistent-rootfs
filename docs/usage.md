@@ -78,6 +78,12 @@ The installer waits for the backend rollout before applying the fail-closed
 admission registrations. If rollout fails, fix the backend and rerun the installer;
 existing registrations are not removed during upgrades.
 
+The installer verifies certificate validity and the Service DNS name. After registration it submits a valid protected PVC and an invalid managed Pod with server-side dry-run. It expects the Pod mutator to deny the second request. The installing identity needs PVC and Pod create permission in the webhook namespace. If either probe fails, inspect the admission error, Service endpoints, certificate and API server connectivity. Rerun after registration has propagated across API servers. For planned certificate rotation, stage a CA bundle trusting both certificates in both webhook configurations, update the TLS Secret, restart the webhook Deployment and wait for all replicas to serve the replacement certificate before rerunning the installer to retire the old trust anchor.
+
+For a CA-issued serving certificate, set `WEBHOOK_CA_FILE` to the PEM trust bundle when running the installer, including during upgrades. The installer validates the serving chain against this bundle and publishes it to the admission configurations. Store any required intermediate serving certificates after the leaf in `tls.crt`.
+
+The scheduler prefers different hosts for webhook replicas. Provide multiple eligible nodes for host failure tolerance. Pods referencing an absent PVC can be retried after the PVC exists. This ordering lets admission verify whether the PVC is protected. Each request looks up at most four distinct claims concurrently within the webhook deadline.
+
 ## 4. Configure a workload
 
 Every selected Pod needs these annotations:

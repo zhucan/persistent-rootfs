@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -107,26 +109,14 @@ func TestPVCAdmission(t *testing.T) {
 	}
 }
 
-func TestCacheReadinessTransition(t *testing.T) {
-	synced := false
-	kube := kubePVCClient{synced: func() bool { return synced }}
-	calls := 0
-	handler := kube.whenReady(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		calls++
-		writer.WriteHeader(http.StatusOK)
-	}))
-	for _, path := range []string{"/healthz", "/validate-pvc", "/validate", "/mutate"} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
-		if response.Code != http.StatusServiceUnavailable || calls != 0 {
-			t.Fatalf("unsynced %s: status=%d calls=%d", path, response.Code, calls)
-		}
+func TestColdCacheUsesLivePVC(t *testing.T) {
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: "demo", Labels: map[string]string{persistentrootfs.LabelStateVolume: "true"}}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOncePod}}}
+	kube := kubePVCClient{synced: func() bool { return false }, client: fake.NewSimpleClientset(pvc)}
+	if err := kube.validate(context.Background(), "demo", "state"); err != nil {
+		t.Fatal(err)
 	}
-	synced = true
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/validate", nil))
-	if response.Code != http.StatusOK || calls != 1 {
-		t.Fatalf("synced: status=%d calls=%d", response.Code, calls)
+	if err := kube.validate(context.Background(), "demo", "missing"); err == nil {
+		t.Fatal("accepted missing PVC")
 	}
 }
 
@@ -151,6 +141,50 @@ func TestClaimAliasesShareOnlyTheLookup(t *testing.T) {
 		if calls != 1 || (err != nil) != protected {
 			t.Fatalf("protected=%v: calls=%d err=%v", protected, calls, err)
 		}
+	}
+}
+
+func TestClaimLookupConcurrency(t *testing.T) {
+	pod := corev1.Pod{}
+	for index := range 8 {
+		name := fmt.Sprintf("claim-%d", index)
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}})
+	}
+	raw, err := json.Marshal(pod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{}, 8)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- checkClaimUses(ctx, &persistentrootfs.AdmissionRequest{Object: raw}, func(ctx context.Context, _, _ string) (bool, error) {
+			started <- struct{}{}
+			select {
+			case <-release:
+				return false, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		})
+	}()
+	for range 4 {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("lookups did not overlap")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("more than four simultaneous lookups")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -193,7 +227,7 @@ func TestPVCValidatorUsesInformerCache(t *testing.T) {
 	if err := indexer.Add(pvc); err != nil {
 		t.Fatal(err)
 	}
-	validator := &kubePVCClient{lister: corelisters.NewPersistentVolumeClaimLister(indexer)}
+	validator := &kubePVCClient{lister: corelisters.NewPersistentVolumeClaimLister(indexer), synced: func() bool { return true }}
 	if err := validator.validate(context.Background(), "default", "state"); err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +242,7 @@ func TestPVCValidatorRejectsUnsafeCachedPVC(t *testing.T) {
 	if err := indexer.Add(pvc); err != nil {
 		t.Fatal(err)
 	}
-	validator := &kubePVCClient{lister: corelisters.NewPersistentVolumeClaimLister(indexer)}
+	validator := &kubePVCClient{lister: corelisters.NewPersistentVolumeClaimLister(indexer), synced: func() bool { return true }}
 	if err := validator.validate(context.Background(), "default", "state"); err == nil {
 		t.Fatal("unsafe cached PVC was accepted")
 	}

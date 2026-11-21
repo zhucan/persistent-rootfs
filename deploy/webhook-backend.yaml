@@ -47,6 +47,13 @@ spec:
         app: persistent-rootfs-webhook
     spec:
       serviceAccountName: persistent-rootfs-webhook
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: persistent-rootfs-webhook
       containers:
         - name: webhook
           image: registry.example/persistent-rootfs-webhook:REPLACE_ME

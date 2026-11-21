@@ -113,6 +113,10 @@ func prepareMergedDirectory(path string) error {
 }
 
 func lockFile(ctx context.Context, path string) (*os.File, error) {
+	return acquireFileLock(ctx, path, func(fd int) error { return unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB) })
+}
+
+func acquireFileLock(ctx context.Context, path string, try func(int) error) (*os.File, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
@@ -124,11 +128,11 @@ func lockFile(ctx context.Context, path string) (*os.File, error) {
 			unix.Close(fd)
 			return nil, fmt.Errorf("lock %q: %w", path, err)
 		}
-		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		err := try(fd)
 		if err == nil {
 			break
 		}
-		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EACCES) && !errors.Is(err, unix.EINTR) {
 			unix.Close(fd)
 			return nil, err
 		}

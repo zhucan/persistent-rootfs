@@ -11,6 +11,7 @@ import (
 
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/shim"
+
 	"github.com/persistent-rootfs/persistent-rootfs/internal/persistentrootfs"
 )
 
